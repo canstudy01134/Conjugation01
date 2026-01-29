@@ -110,6 +110,17 @@
     const pageSize = 20;
     let isAutoPlaying = false;
 
+    // --- Silk対策1: オブジェクトを外で作り、再利用する ---
+    const speechMsg = new SpeechSynthesisUtterance();
+    speechMsg.lang = 'en-US';
+    speechMsg.rate = 0.75; // 速度（ここでお好みで調整）
+
+    // --- Silk対策2: 初回クリック時に音声エンジンを叩き起こす ---
+    window.addEventListener('click', function() {
+        const dummy = new SpeechSynthesisUtterance('');
+        speechSynthesis.speak(dummy);
+    }, { once: true });
+
     function render() {
         stopAutoPlay();
         const list = document.getElementById('wordList');
@@ -164,15 +175,24 @@
         btn.innerText = btn.classList.contains('active') ? "日本語を表示👁️" : "日本語を隠す🙈";
     }
 
+    // --- Silk対策3: 処理待ち(setTimeout)を入れて命令を安定させる ---
     function speakWord(text, callback) {
+        // キャンセル処理
         speechSynthesis.cancel();
-        // autumn (fall) のようにカッコがある場合は最初の単語のみ発音
+        
         const cleanText = text.split('(')[0].trim();
-        const msg = new SpeechSynthesisUtterance(cleanText);
-        msg.lang = 'en-US';
-        msg.rate = 0.75; // 読み上げ速度
-        msg.onend = callback;
-        speechSynthesis.speak(msg);
+        speechMsg.text = cleanText;
+        
+        // 前のコールバックを上書き
+        speechMsg.onend = null;
+        speechMsg.onend = () => {
+            if(callback) callback();
+        };
+
+        // すぐにspeakせず、0.05秒だけ待つのがコツ
+        setTimeout(() => {
+            speechSynthesis.speak(speechMsg);
+        }, 50);
     }
 
     async function playGroup(startIndex, count) {
@@ -189,10 +209,15 @@
             if (!isAutoPlaying || !wordData[startIdx + i]) break;
             document.querySelectorAll('.word-row').forEach(r => r.classList.remove('highlight'));
             const currentRow = document.getElementById(`row-${i}`);
-            if (currentRow) currentRow.classList.add('highlight');
+            if (currentRow) {
+                currentRow.classList.add('highlight');
+                currentRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
 
+            // 非同期で読み上げ完了を待つ
             await new Promise(res => {
                 speakWord(wordData[startIdx + i][0], () => {
+                    // 単語間のポーズ
                     setTimeout(res, interval);
                 });
             });
